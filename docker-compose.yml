@@ -1,0 +1,226 @@
+# =============================================================================
+# SkyHigh Core — docker-compose.yml
+# Full local development stack:
+#   postgres  → Durable relational store  (bookings, seats, passengers)
+#   redis     → Ephemeral coordination    (holds, waitlist, rate limits)
+#   app       → Spring Boot API server    (REST endpoints + CleanupScheduler)
+#
+# No separate message broker or worker container is needed in v1.0 because:
+#   - The CleanupScheduler background job runs INSIDE the app container via
+#     Spring @Scheduled — it shares the same JVM and connection pools.
+#   - A message broker (e.g. RabbitMQ / Kafka) would be added in v1.1 when
+#     push notifications or async saga patterns are introduced.
+#
+# Usage:
+#   docker-compose up --build -d      → start full stack
+#   docker-compose down               → stop all containers
+#   docker-compose down -v            → stop + delete volumes (wipes data)
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # SERVICE: postgres
+  # Role: Primary durable data store.
+  # Stores: flights, seats (with status), passengers, bookings (PNRs).
+  # Why PostgreSQL 15?
+  #   - ACID transactions guarantee booking integrity.
+  #   - `SELECT FOR UPDATE` (pessimistic locking) prevents double-booking.
+  #   - Native support for enums, timestamptz, and partial indexes.
+  # Why alpine? Smallest image footprint (~130 MB vs ~400 MB for full image).
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    container_name: skyhigh_postgres
+    ports:
+      # Expose to host for local DB clients (e.g. DBeaver, psql).
+      # Remove in production — app should reach DB via internal network only.
+      - "5432:5432"
+    environment:
+      POSTGRES_DB:       skyhigh_db
+      POSTGRES_USER:     skyhigh_user
+      POSTGRES_PASSWORD: skyhigh_password
+    volumes:
+      # Named volume persists data across container restarts and rebuilds.
+      # Without this, ALL booking data is lost on every `docker-compose down`.
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # pg_isready checks TCP connection AND authentication.
+      # The app container's `depends_on: condition: service_healthy` blocks
+      # startup until this passes — prevents "connection refused" boot failures.
+      test: ["CMD-SHELL", "pg_isready -U skyhigh_user -d skyhigh_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          # Conservative limits for local dev. Raise in staging/prod.
+          cpus: "1.0"
+          memory: 512M
+
+  # ---------------------------------------------------------------------------
+  # SERVICE: redis
+  # Role: Ephemeral distributed coordination layer.
+  # Stores:
+  #   seat_hold:{flightId}:{seatNumber}  → userId  (TTL = 120s)
+  #   waitlist:{flightId}                → ZSET of userId:timestamp pairs
+  #   rate_limit:{userId}                → Bucket4j token state
+  # Why Redis 7?
+  #   - SETNX (atomic set-if-not-exists) is the heart of the hold mechanism.
+  #   - ZSET with ZPOPMIN gives O(log N) FIFO waitlist without application sort.
+  #   - Native TTL expiry is the PRIMARY seat hold expiration path.
+  # appendonly yes:
+  #   Enables AOF (Append-Only File) persistence. Redis survives a container
+  #   restart without losing active holds mid-flight.
+  # notify-keyspace-events Ex:
+  #   Publishes keyspace events for key EXPIRY. Wired up for v1.1 real-time
+  #   waitlist promotion (currently read by CleanupScheduler via polling).
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: skyhigh_redis
+    ports:
+      # Expose to host for inspection (redis-cli, RedisInsight).
+      # Remove in production.
+      - "6379:6379"
+    command: >
+      redis-server
+      --appendonly yes
+      --notify-keyspace-events Ex
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      # Persists AOF log across restarts. Without this, a container restart
+      # clears all active seat holds — passengers could lose their selections.
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
+  # ---------------------------------------------------------------------------
+  # SERVICE: app
+  # Role: Spring Boot REST API + embedded background worker.
+  # Exposes: /api/v1/* endpoints (hold, confirm, waitlist, baggage)
+  # Also runs internally:
+  #   CleanupScheduler — @Scheduled every 60s, scans zombie holds in Postgres
+  #                      and releases them back to AVAILABLE.
+  # Why not a separate worker container?
+  #   In v1.0 the scheduler is lightweight (one DB query / minute).
+  #   Splitting it into its own container adds operational complexity
+  #   (separate image, separate scaling, leader election to prevent duplicate
+  #   runs) for no practical gain yet. Tracked for v1.1.
+  # depends_on with service_healthy:
+  #   Guarantees Postgres TCP + auth AND Redis are ready before the JVM starts.
+  #   Prevents Spring Boot datasource connection failures on cold boot.
+  # ---------------------------------------------------------------------------
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: skyhigh_app
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # --- Database ---
+      SPRING_DATASOURCE_URL:      jdbc:postgresql://postgres:5432/skyhigh_db
+      SPRING_DATASOURCE_USERNAME: skyhigh_user
+      SPRING_DATASOURCE_PASSWORD: skyhigh_password
+      # `update` creates/alters tables automatically from JPA entities.
+      # Change to `validate` in production (migrations via Flyway/Liquibase).
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_JPA_OPEN_IN_VIEW:    "false"
+
+      # --- Redis ---
+      # Uses Docker internal hostname `redis` — NOT localhost.
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+
+      # --- JVM Tuning ---
+      # G1GC is optimal for latency-sensitive Spring Boot apps.
+      JAVA_OPTS: >
+        -XX:+UseG1GC
+        -XX:MaxRAMPercentage=75.0
+        -Djava.security.egd=file:/dev/./urandom
+
+    restart: on-failure
+    healthcheck:
+      # Spring Boot Actuator health probe.
+      # Checks DB connection, Redis connection, and disk space by default.
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+
+  # ---------------------------------------------------------------------------
+  # SERVICE: (PLANNED v1.1) message-broker
+  # Role: Async event bus for decoupled notification delivery.
+  # Candidate: RabbitMQ 3 (simple ops) or Apache Kafka (high-throughput replay)
+  #
+  # When to add:
+  #   - When boarding pass generation becomes a downstream microservice.
+  #   - When waitlist promotion needs real-time push notifications.
+  #   - When the saga pattern is introduced for cancellation rollbacks.
+  #
+  # Placeholder config (commented out, enable in v1.1):
+  #
+  # rabbitmq:
+  #   image: rabbitmq:3-management-alpine
+  #   container_name: skyhigh_rabbitmq
+  #   ports:
+  #     - "5672:5672"    # AMQP
+  #     - "15672:15672"  # Management UI
+  #   environment:
+  #     RABBITMQ_DEFAULT_USER: skyhigh_user
+  #     RABBITMQ_DEFAULT_PASS: skyhigh_password
+  #   volumes:
+  #     - rabbitmq_data:/var/lib/rabbitmq
+  #   healthcheck:
+  #     test: ["CMD", "rabbitmq-diagnostics", "ping"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+  # ---------------------------------------------------------------------------
+
+# =============================================================================
+# VOLUMES
+# Named volumes managed by Docker. Data persists across `docker-compose down`
+# but is removed by `docker-compose down -v`.
+# postgres_data → all schema, seats, bookings
+# redis_data    → AOF log (active holds, waitlist state)
+# =============================================================================
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# =============================================================================
+# NETWORKS
+# Docker Compose automatically creates a default bridge network named
+# `skyhigh-airlines_default`. All services join it and can resolve each other
+# by service name (postgres, redis, app). No external exposure unless a port
+# mapping is declared.
+# =============================================================================

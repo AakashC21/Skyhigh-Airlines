@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SeatService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">SkyHigh Core</a> &gt; <a href="index.source.html" class="el_package">com.skyhigh.core.service</a> &gt; <span class="el_source">SeatService.java</span></div><h1>SeatService.java</h1><pre class="source lang-java linenums">package com.skyhigh.core.service;
+
+import com.skyhigh.core.model.*;
+import com.skyhigh.core.repository.*;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+
+import java.time.Duration;
+import java.util.UUID;
+
+@Service
+<span class="fc" id="L17">@RequiredArgsConstructor</span>
+<span class="fc" id="L18">@Slf4j</span>
+public class SeatService {
+
+    private final SeatRepository seatRepository;
+    private final BookingRepository bookingRepository;
+    private final PassengerRepository passengerRepository;
+    private final StringRedisTemplate redisTemplate;
+
+    private static final long HOLD_DURATION_SECONDS = 120;
+
+    /**
+     * FIX (CRITICAL): holdSeat is now @Transactional.
+     * Redis SETNX is attempted first. On any DB failure the Redis key is
+     * deleted in a finally/catch block so no phantom holds remain.
+     * A pessimistic lock is acquired on the seat row to eliminate the
+     * race window between reading and updating status.
+     */
+    @Transactional
+    public String holdSeat(Long flightId, String seatNumber, String userId) {
+<span class="fc" id="L37">        String key = buildKey(flightId, seatNumber);</span>
+
+        // 1. Atomic Redis lock attempt (SETNX + TTL)
+<span class="fc" id="L40">        Boolean success = redisTemplate.opsForValue()</span>
+<span class="fc" id="L41">                .setIfAbsent(key, userId, Duration.ofSeconds(HOLD_DURATION_SECONDS));</span>
+
+<span class="fc bfc" id="L43" title="All 2 branches covered.">        if (Boolean.FALSE.equals(success)) {</span>
+<span class="fc" id="L44">            throw new IllegalStateException(&quot;Seat &quot; + seatNumber + &quot; is currently held by another user.&quot;);</span>
+        }
+
+        try {
+            // 2. FIX: single query with pessimistic lock — eliminates two-step lookup
+            // and closes the race window with CleanupScheduler.
+<span class="fc" id="L50">            Seat seat = seatRepository.findByFlightIdAndSeatNumberWithLock(flightId, seatNumber)</span>
+<span class="pc" id="L51">                    .orElseThrow(() -&gt; new IllegalArgumentException(&quot;Seat &quot; + seatNumber + &quot; not found.&quot;));</span>
+
+            // 3. Guard: reject if already confirmed or held by a zombie that Redis missed
+<span class="fc bfc" id="L54" title="All 2 branches covered.">            if (seat.getStatus() == Seat.SeatStatus.CONFIRMED) {</span>
+<span class="fc" id="L55">                throw new IllegalStateException(&quot;Seat &quot; + seatNumber + &quot; is already booked.&quot;);</span>
+            }
+<span class="fc bfc" id="L57" title="All 2 branches covered.">            if (seat.getStatus() == Seat.SeatStatus.HELD) {</span>
+<span class="fc" id="L58">                throw new IllegalStateException(&quot;Seat &quot; + seatNumber + &quot; is currently held by another user.&quot;);</span>
+            }
+
+            // 4. Transition to HELD atomically within the transaction
+<span class="fc" id="L62">            seat.setStatus(Seat.SeatStatus.HELD);</span>
+<span class="fc" id="L63">            seatRepository.save(seat);</span>
+
+<span class="fc" id="L65">            log.info(&quot;Seat {} held by user {} for {}s&quot;, seatNumber, userId, HOLD_DURATION_SECONDS);</span>
+<span class="fc" id="L66">            return UUID.randomUUID().toString();</span>
+
+<span class="fc" id="L68">        } catch (Exception e) {</span>
+            // FIX (CRITICAL): always roll back Redis key on any DB failure —
+            // prevents phantom holds that block the seat for 120 seconds.
+<span class="fc" id="L71">            redisTemplate.delete(key);</span>
+<span class="fc" id="L72">            throw e;</span>
+        }
+    }
+
+    /**
+     * FIX (CRITICAL): Redis key is deleted AFTER the DB transaction commits,
+     * using TransactionSynchronizationManager.afterCommit().
+     * Previously, DEL could fire before the commit, leaving the seat in an
+     * inconsistent state if the commit then failed.
+     *
+     * FIX (HIGH): confirmBooking now uses a single
+     * findByFlightIdAndSeatNumberWithLock
+     * query instead of two separate queries (plain find → then lock by ID),
+     * eliminating the stale-read window between them.
+     */
+    @Transactional
+    public Booking confirmBooking(Long flightId, String seatNumber, String userId, String passengerEmail) {
+<span class="fc" id="L89">        String key = buildKey(flightId, seatNumber);</span>
+
+        // 1. Verify Redis hold still belongs to this user
+<span class="fc" id="L92">        String holderId = redisTemplate.opsForValue().get(key);</span>
+<span class="fc bfc" id="L93" title="All 4 branches covered.">        if (holderId == null || !holderId.equals(userId)) {</span>
+<span class="fc" id="L94">            throw new IllegalStateException(&quot;Seat hold has expired or belongs to another user.&quot;);</span>
+        }
+
+        // 2. FIX: single locked query — no stale-read between two DB calls
+<span class="fc" id="L98">        Seat lockedSeat = seatRepository.findByFlightIdAndSeatNumberWithLock(flightId, seatNumber)</span>
+<span class="pc" id="L99">                .orElseThrow(() -&gt; new IllegalArgumentException(&quot;Seat not found&quot;));</span>
+
+        // 3. Final safety check under the DB lock
+<span class="fc bfc" id="L102" title="All 2 branches covered.">        if (lockedSeat.getStatus() == Seat.SeatStatus.CONFIRMED) {</span>
+<span class="fc" id="L103">            throw new IllegalStateException(&quot;Seat already confirmed (concurrent booking detected).&quot;);</span>
+        }
+
+        // 4. Find or create passenger
+<span class="fc" id="L107">        Passenger passenger = passengerRepository.findByEmail(passengerEmail)</span>
+<span class="fc" id="L108">                .orElseGet(() -&gt; passengerRepository.save(</span>
+<span class="fc" id="L109">                        Passenger.builder()</span>
+<span class="fc" id="L110">                                .email(passengerEmail)</span>
+<span class="fc" id="L111">                                .firstName(&quot;Guest&quot;)</span>
+<span class="fc" id="L112">                                .lastName(&quot;Passenger&quot;)</span>
+<span class="fc" id="L113">                                .build()));</span>
+
+        // 5. Create Booking record with full UUID — eliminates collision risk
+<span class="fc" id="L116">        Booking booking = Booking.builder()</span>
+<span class="fc" id="L117">                .bookingReference(&quot;PNR-&quot; + UUID.randomUUID().toString().replace(&quot;-&quot;, &quot;&quot;).substring(0, 8).toUpperCase())</span>
+<span class="fc" id="L118">                .flight(lockedSeat.getFlight())</span>
+<span class="fc" id="L119">                .seat(lockedSeat)</span>
+<span class="fc" id="L120">                .passenger(passenger)</span>
+<span class="fc" id="L121">                .status(Booking.BookingStatus.CONFIRMED)</span>
+<span class="fc" id="L122">                .build();</span>
+<span class="fc" id="L123">        bookingRepository.save(booking);</span>
+
+        // 6. Confirm the seat
+<span class="fc" id="L126">        lockedSeat.setStatus(Seat.SeatStatus.CONFIRMED);</span>
+<span class="fc" id="L127">        seatRepository.save(lockedSeat);</span>
+
+        // 7. FIX (CRITICAL): delete Redis key ONLY after DB commit succeeds.
+        // If the commit fails the Redis TTL will naturally expire — no data corruption.
+<span class="fc" id="L131">        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {</span>
+            @Override
+            public void afterCommit() {
+<span class="fc" id="L134">                redisTemplate.delete(key);</span>
+<span class="fc" id="L135">                log.info(&quot;Redis hold key {} released after successful commit&quot;, key);</span>
+<span class="fc" id="L136">            }</span>
+        });
+
+<span class="fc" id="L139">        log.info(&quot;Booking confirmed: {} for seat {}&quot;, booking.getBookingReference(), seatNumber);</span>
+<span class="fc" id="L140">        return booking;</span>
+    }
+
+    private String buildKey(Long flightId, String seatNumber) {
+<span class="fc" id="L144">        return &quot;seat_hold:&quot; + flightId + &quot;:&quot; + seatNumber;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

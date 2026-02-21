@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>BaggageService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">SkyHigh Core</a> &gt; <a href="index.source.html" class="el_package">com.skyhigh.core.service</a> &gt; <span class="el_source">BaggageService.java</span></div><h1>BaggageService.java</h1><pre class="source lang-java linenums">package com.skyhigh.core.service;
+
+import org.springframework.stereotype.Service;
+import java.math.BigDecimal;
+import java.util.Random;
+
+@Service
+<span class="fc" id="L8">public class BaggageService {</span>
+
+    private static final double MAX_WEIGHT_KG = 25.0;
+<span class="fc" id="L11">    private static final BigDecimal EXCESS_FEE_PER_KG = new BigDecimal(&quot;15.00&quot;);</span>
+<span class="fc" id="L12">    private final Random random = new Random();</span>
+
+    public BigDecimal calculateExcessBaggageFee(double weight) {
+<span class="fc bfc" id="L15" title="All 2 branches covered.">        if (weight &lt;= MAX_WEIGHT_KG) {</span>
+<span class="fc" id="L16">            return BigDecimal.ZERO;</span>
+        }
+<span class="fc" id="L18">        double excess = weight - MAX_WEIGHT_KG;</span>
+<span class="fc" id="L19">        return EXCESS_FEE_PER_KG.multiply(BigDecimal.valueOf(excess));</span>
+    }
+
+    public boolean processPayment(String paymentToken, BigDecimal amount) {
+        // Mock payment processing simulation
+        // 80% success rate
+        try {
+<span class="fc" id="L26">            Thread.sleep(200); // Simulate network latency</span>
+<span class="nc" id="L27">        } catch (InterruptedException e) {</span>
+<span class="nc" id="L28">            Thread.currentThread().interrupt();</span>
+<span class="fc" id="L29">        }</span>
+
+<span class="fc bfc" id="L31" title="All 2 branches covered.">        return random.nextInt(100) &lt; 80;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

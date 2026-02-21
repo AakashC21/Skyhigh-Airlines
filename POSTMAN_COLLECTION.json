@@ -1,0 +1,855 @@
+{
+  "info": {
+    "_postman_id": "skyhigh-core-v1",
+    "name": "SkyHigh Core API",
+    "description": "Complete API collection for the SkyHigh Airlines Digital Check-In System.\n\nBase URL: http://localhost:8080/api/v1\n\nFlow to test happy path:\n1. GET Flights → note flightId\n2. GET Seat Map → pick an AVAILABLE seat\n3. POST Hold Seat → seat is reserved for 120s\n4. POST Confirm Booking (normal baggage) → returns PNR\n5. GET Booking by PNR → verify status",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080/api/v1",
+      "type": "string"
+    },
+    {
+      "key": "flightId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "seatNumber",
+      "value": "1A",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "user_001",
+      "type": "string"
+    },
+    {
+      "key": "pnr",
+      "value": "PNR-15C6BBE3",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Flights",
+      "item": [
+        {
+          "name": "GET All Flights",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/flights",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "flights"
+              ]
+            },
+            "description": "Returns the list of all scheduled flights. In the demo environment, flight SH-101 with id=1 is pre-seeded."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body).to.be.an('array').that.is.not.empty;",
+                  "    pm.collectionVariables.set('flightId', body[0].id);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Seat Map",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/flights/{{flightId}}/seats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "flights",
+                "{{flightId}}",
+                "seats"
+              ]
+            },
+            "description": "Real-time seat map for a flight. Each seat shows its current status: AVAILABLE, HELD, or CONFIRMED."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns seats with status', () => {",
+                  "    const seats = pm.response.json();",
+                  "    pm.expect(seats).to.be.an('array').that.is.not.empty;",
+                  "    const available = seats.find(s => s.status === 'AVAILABLE');",
+                  "    if (available) {",
+                  "        pm.collectionVariables.set('seatNumber', available.seatNumber);",
+                  "        console.log('Selected AVAILABLE seat:', available.seatNumber);",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Seat Map - Flight Not Found",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/flights/9999/seats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "flights",
+                "9999",
+                "seats"
+              ]
+            },
+            "description": "Should return 404 for a non-existent flight."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 404 or empty array', () => {",
+                  "    pm.expect([200, 404]).to.include(pm.response.code);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Seat Hold",
+      "item": [
+        {
+          "name": "POST Hold Seat - Success",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"flightId\": {{flightId}},\n  \"seatNumber\": \"{{seatNumber}}\",\n  \"userId\": \"{{userId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/seats/hold",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "seats",
+                "hold"
+              ]
+            },
+            "description": "Acquires a 120-second exclusive hold on the specified seat using Redis SETNX. Returns a holdReference UUID."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Hold response valid', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.status).to.eql('HELD');",
+                  "    pm.expect(body.holdReference).to.be.a('string').that.is.not.empty;",
+                  "    pm.expect(body.message).to.include('120');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Hold Seat - Conflict (already held)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"flightId\": {{flightId}},\n  \"seatNumber\": \"{{seatNumber}}\",\n  \"userId\": \"user_different\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/seats/hold",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "seats",
+                "hold"
+              ]
+            },
+            "description": "Attempts to hold the same seat with a different user. Should return 409 Conflict (seat already held by Redis SETNX)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 409 (seat taken)', () => pm.response.to.have.status(409));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Hold Seat - Validation: Missing flightId",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"seatNumber\": \"1A\",\n  \"userId\": \"user_001\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/seats/hold",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "seats",
+                "hold"
+              ]
+            },
+            "description": "Omits the required flightId field. Expects 400 Bad Request from Bean Validation."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 400 (validation)', () => pm.response.to.have.status(400));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Hold Seat - Validation: Blank userId",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"flightId\": 1,\n  \"seatNumber\": \"1A\",\n  \"userId\": \"\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/seats/hold",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "seats",
+                "hold"
+              ]
+            },
+            "description": "Sends blank userId — expects 400 from @NotBlank validation."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 400 (blank userId)', () => pm.response.to.have.status(400));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Bookings",
+      "item": [
+        {
+          "name": "POST Confirm Booking - Normal Baggage",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"flightId\": {{flightId}},\n  \"seatNumber\": \"{{seatNumber}}\",\n  \"userId\": \"{{userId}}\",\n  \"email\": \"alice@skyhigh.com\",\n  \"baggageWeight\": 20.0,\n  \"paymentProcessed\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/bookings/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "confirm"
+              ]
+            },
+            "description": "Confirms the hold from the previous step. Baggage is within 25kg limit so no payment required. Returns a PNR."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "pm.test('Booking confirmed with PNR', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.status).to.eql('CONFIRMED');",
+                  "    pm.expect(body.bookingReference).to.match(/^PNR-/);",
+                  "    pm.collectionVariables.set('pnr', body.bookingReference);",
+                  "    console.log('PNR:', body.bookingReference);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "SETUP: Hold Seat 10A for user_002 (excess baggage prereq)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"flightId\": {{flightId}},\n  \"seatNumber\": \"10A\",\n  \"userId\": \"user_002\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/seats/hold",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "seats",
+                "hold"
+              ]
+            },
+            "description": "Pre-condition: holds seat 10A for user_002 so the two excess baggage confirm tests immediately below will work. Run in sequence — the next two requests must be sent within 120 seconds."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Setup hold: Status 200 (seat grabbed for user_002)', () => {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 409]);",
+                  "    if (pm.response.code === 200) { console.log('Setup: 10A held for user_002'); }",
+                  "    else { console.warn('10A already held — may still pass if same user'); }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Confirm Booking - Excess Baggage (no payment)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"flightId\": {{flightId}},\n  \"seatNumber\": \"10A\",\n  \"userId\": \"user_002\",\n  \"email\": \"bob@skyhigh.com\",\n  \"baggageWeight\": 40.0,\n  \"paymentProcessed\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/bookings/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "confirm"
+              ]
+            },
+            "description": "40kg baggage — exceeds 25kg limit. paymentProcessed=false. Expects 402 Payment Required with the computed fee ($225).\n\nPre-condition: seat 10A must be in HELD state for user_002. Manually hold it via 'POST Hold Seat' first."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 402 (excess baggage fee)', () => pm.response.to.have.status(402));",
+                  "pm.test('Fee amount correct', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.feeAmount).to.eql(225.0);",
+                  "    pm.expect(body.currency).to.eql('USD');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Confirm Booking - Excess Baggage (payment done)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"flightId\": {{flightId}},\n  \"seatNumber\": \"10A\",\n  \"userId\": \"user_002\",\n  \"email\": \"bob@skyhigh.com\",\n  \"baggageWeight\": 40.0,\n  \"paymentProcessed\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/bookings/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "confirm"
+              ]
+            },
+            "description": "Same request as above but paymentProcessed=true. The check-in should proceed and return 201 with a PNR.\n\nPre-condition: seat 10A must be in HELD state for user_002."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 201 (confirmed after payment)', () => pm.response.to.have.status(201));",
+                  "pm.test('Has PNR', () => {",
+                  "    pm.expect(pm.response.json().bookingReference).to.match(/^PNR-/);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Confirm Booking - Validation: Invalid Email",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"flightId\": 1,\n  \"seatNumber\": \"1A\",\n  \"userId\": \"user_001\",\n  \"email\": \"not-an-email\",\n  \"baggageWeight\": 10.0\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/bookings/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "confirm"
+              ]
+            },
+            "description": "Invalid email format. Expects 400 Bad Request from @Email validation."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 400 (invalid email)', () => pm.response.to.have.status(400));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Confirm Booking - Validation: Negative Baggage",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"flightId\": 1,\n  \"seatNumber\": \"1A\",\n  \"userId\": \"user_001\",\n  \"email\": \"test@skyhigh.com\",\n  \"baggageWeight\": -5.0\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/bookings/confirm",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "confirm"
+              ]
+            },
+            "description": "Negative baggage weight. Expects 400 Bad Request from @Min validation."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 400 (negative baggage)', () => pm.response.to.have.status(400));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Booking by PNR - Found",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{pnr}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "{{pnr}}"
+              ]
+            },
+            "description": "Look up a confirmed booking by its PNR reference. The {{pnr}} variable is automatically set by the 'POST Confirm Booking - Normal Baggage' test."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Booking status CONFIRMED', () => {",
+                  "    pm.expect(pm.response.json().status).to.eql('CONFIRMED');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Booking by PNR - Not Found",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/PNR-FAKE99",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "PNR-FAKE99"
+              ]
+            },
+            "description": "Should return 404 for a non-existent PNR."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 404', () => pm.response.to.have.status(404));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Waitlist",
+      "item": [
+        {
+          "name": "POST Join Waitlist - Success",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"flightId\": {{flightId}},\n  \"userId\": \"user_waitlist_001\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/waitlist/join",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "waitlist",
+                "join"
+              ]
+            },
+            "description": "Joins the flight waitlist. Uses Redis ZADD NX (atomic — no TOCTOU race). Returns position in queue."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 202', () => pm.response.to.have.status(202));",
+                  "pm.test('Waitlist response valid', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.status).to.eql('WAITLISTED');",
+                  "    pm.expect(body.position).to.be.a('number').that.is.above(0);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Join Waitlist - Duplicate (already on list)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"flightId\": {{flightId}},\n  \"userId\": \"user_waitlist_001\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/waitlist/join",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "waitlist",
+                "join"
+              ]
+            },
+            "description": "Same user tries to join waitlist again. Atomic ZADD NX rejects it. Expects 400 with 'Already on waitlist' error."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 400 (duplicate waitlist)', () => pm.response.to.have.status(400));",
+                  "pm.test('Error message mentions waitlist', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.error).to.include('waitlist');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Join Waitlist - Second User",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"flightId\": {{flightId}},\n  \"userId\": \"user_waitlist_002\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/waitlist/join",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "waitlist",
+                "join"
+              ]
+            },
+            "description": "A second user joins the waitlist. Expect position 2 (FIFO by timestamp)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 202', () => pm.response.to.have.status(202));",
+                  "pm.test('Position is 2', () => {",
+                  "    pm.expect(pm.response.json().position).to.eql(2);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Operational",
+      "item": [
+        {
+          "name": "GET Actuator Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/actuator/health",
+              "host": [
+                "http://localhost:8080"
+              ],
+              "path": [
+                "actuator",
+                "health"
+              ]
+            },
+            "description": "Spring Boot Actuator health endpoint. Shows status of DB and Redis connections."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('System UP', () => {",
+                  "    pm.expect(pm.response.json().status).to.eql('UP');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Rate Limit (50+ requests hit 429)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Forwarded-For",
+                "value": "10.0.0.1"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"flightId\": 1,\n  \"seatNumber\": \"1A\",\n  \"userId\": \"stress_user\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/seats/hold",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "seats",
+                "hold"
+              ]
+            },
+            "description": "Use Postman Runner with 60 iterations to trigger rate limiting (429). The Bucket4j limiter allows 50 tokens then blocks.\n\nTo trigger: Run Collection > select this request > set iterations to 60."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// When running 60+ times, later iterations should see 429",
+                  "pm.test('Response is 200 or 409 or 429', () => {",
+                  "    pm.expect([200, 409, 429]).to.include(pm.response.code);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

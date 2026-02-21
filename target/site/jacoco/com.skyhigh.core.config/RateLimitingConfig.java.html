@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RateLimitingConfig.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">SkyHigh Core</a> &gt; <a href="index.source.html" class="el_package">com.skyhigh.core.config</a> &gt; <span class="el_source">RateLimitingConfig.java</span></div><h1>RateLimitingConfig.java</h1><pre class="source lang-java linenums">package com.skyhigh.core.config;
+
+import io.github.bucket4j.Bucket;
+import io.github.bucket4j.BucketConfiguration;
+import io.github.bucket4j.distributed.proxy.ProxyManager;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.servlet.HandlerInterceptor;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+/**
+ * Distributed Rate Limiting using Bucket4j + Redis.
+ * Enforces limits across multiple application replicas.
+ */
+@Configuration
+<span class="nc" id="L20">@RequiredArgsConstructor</span>
+<span class="fc" id="L21">@Slf4j</span>
+public class RateLimitingConfig implements WebMvcConfigurer {
+
+    private final ProxyManager&lt;byte[]&gt; proxyManager;
+    private final BucketConfiguration bucketConfiguration;
+
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+<span class="nc" id="L29">        registry.addInterceptor(new HandlerInterceptor() {</span>
+            @Override
+            public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
+<span class="nc" id="L32">                String key = &quot;rate_limit:&quot; + getClientIp(request);</span>
+
+                // Fetch the bucket state from Redis (atomic)
+<span class="nc" id="L35">                Bucket bucket = proxyManager.builder().build(key.getBytes(), bucketConfiguration);</span>
+
+<span class="nc bnc" id="L37" title="All 2 branches missed.">                if (bucket.tryConsume(1)) {</span>
+<span class="nc" id="L38">                    return true;</span>
+                } else {
+<span class="nc" id="L40">                    response.setStatus(429);</span>
+<span class="nc" id="L41">                    response.setHeader(&quot;Retry-After&quot;, &quot;1&quot;);</span>
+<span class="nc" id="L42">                    log.warn(&quot;Rate limit exceeded for client: {}&quot;, key);</span>
+<span class="nc" id="L43">                    return false;</span>
+                }
+            }
+<span class="nc" id="L46">        }).addPathPatterns(&quot;/api/v1/seats/hold&quot;, &quot;/api/v1/bookings/confirm&quot;, &quot;/api/v1/waitlist/join&quot;);</span>
+<span class="nc" id="L47">    }</span>
+
+    private String getClientIp(HttpServletRequest request) {
+<span class="nc" id="L50">        String xf = request.getHeader(&quot;X-Forwarded-For&quot;);</span>
+<span class="nc bnc" id="L51" title="All 4 branches missed.">        if (xf != null &amp;&amp; !xf.isBlank()) {</span>
+<span class="nc" id="L52">            return xf.split(&quot;,&quot;)[0].trim();</span>
+        }
+<span class="nc" id="L54">        return request.getRemoteAddr();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

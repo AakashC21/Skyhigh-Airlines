@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Flight.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">SkyHigh Core</a> &gt; <a href="index.source.html" class="el_package">com.skyhigh.core.model</a> &gt; <span class="el_source">Flight.java</span></div><h1>Flight.java</h1><pre class="source lang-java linenums">package com.skyhigh.core.model;
+
+import jakarta.persistence.*;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = &quot;flights&quot;, indexes = {
+    @Index(name = &quot;idx_flight_number&quot;, columnList = &quot;flightNumber&quot;, unique = true),
+    @Index(name = &quot;idx_departure_time&quot;, columnList = &quot;departureTime&quot;)
+})
+<span class="nc bnc" id="L16" title="All 54 branches missed.">@Data</span>
+<span class="fc" id="L17">@NoArgsConstructor</span>
+<span class="fc" id="L18">@AllArgsConstructor</span>
+<span class="pc bpc" id="L19" title="1 of 2 branches missed.">@Builder</span>
+public class Flight {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+<span class="fc" id="L23">    private Long id;</span>
+
+    @Column(nullable = false, unique = true)
+<span class="nc" id="L26">    private String flightNumber; // e.g., &quot;SH-101&quot;</span>
+
+    @Column(nullable = false)
+<span class="nc" id="L29">    private LocalDateTime departureTime;</span>
+
+    @Column(nullable = false)
+<span class="nc" id="L32">    private LocalDateTime arrivalTime;</span>
+
+    @Column(nullable = false)
+<span class="nc" id="L35">    private String aircraftType; // e.g., &quot;Boeing 737&quot;</span>
+
+    @Column(nullable = false, updatable = false)
+    @Builder.Default
+<span class="pc" id="L39">    private LocalDateTime createdAt = LocalDateTime.now();</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

@@ -1,0 +1,32 @@
+GROUP,PACKAGE,CLASS,INSTRUCTION_MISSED,INSTRUCTION_COVERED,BRANCH_MISSED,BRANCH_COVERED,LINE_MISSED,LINE_COVERED,COMPLEXITY_MISSED,COMPLEXITY_COVERED,METHOD_MISSED,METHOD_COVERED
+SkyHigh Core,com.skyhigh.core.controller,FlightController.JoinWaitlistRequest,3,0,0,0,1,0,1,0,1,0
+SkyHigh Core,com.skyhigh.core.controller,FlightController.HoldRequest,3,0,0,0,1,0,1,0,1,0
+SkyHigh Core,com.skyhigh.core.controller,FlightController,207,21,14,0,38,1,14,1,7,1
+SkyHigh Core,com.skyhigh.core.controller,FlightController.ConfirmRequest,3,0,0,0,1,0,1,0,1,0
+SkyHigh Core,com.skyhigh.core.exception,GlobalExceptionHandler.ErrorResponse,239,0,40,0,7,0,36,0,16,0
+SkyHigh Core,com.skyhigh.core.exception,GlobalExceptionHandler,117,0,4,0,39,0,8,0,6,0
+SkyHigh Core,com.skyhigh.core.exception,GlobalExceptionHandler.ErrorResponse.ErrorResponseBuilder,56,0,0,0,1,0,8,0,8,0
+SkyHigh Core,com.skyhigh.core.scheduler,CleanupScheduler,76,0,4,0,15,0,5,0,3,0
+SkyHigh Core,com.skyhigh.core.scheduler,CleanupHelper,48,13,6,0,12,2,4,2,1,2
+SkyHigh Core,com.skyhigh.core,SkyHighCoreApplication,5,3,0,0,2,1,1,1,1,1
+SkyHigh Core,com.skyhigh.core.model,Passenger.PassengerBuilder,21,44,1,1,0,1,3,6,2,6
+SkyHigh Core,com.skyhigh.core.model,Booking.BookingStatus,0,15,0,0,0,2,0,1,0,1
+SkyHigh Core,com.skyhigh.core.model,Booking.BookingBuilder,36,61,2,2,0,1,5,7,3,7
+SkyHigh Core,com.skyhigh.core.model,Booking,311,47,62,0,5,6,47,7,16,7
+SkyHigh Core,com.skyhigh.core.model,Seat.SeatStatus,0,21,0,0,0,2,0,1,0,1
+SkyHigh Core,com.skyhigh.core.model,Seat,303,58,62,0,3,10,45,10,14,10
+SkyHigh Core,com.skyhigh.core.model,Seat.SeatBuilder,35,61,2,2,0,1,5,7,3,7
+SkyHigh Core,com.skyhigh.core.model,Passenger,233,30,46,0,5,4,37,4,14,4
+SkyHigh Core,com.skyhigh.core.model,Seat.SeatClass,0,21,0,0,0,2,0,1,0,1
+SkyHigh Core,com.skyhigh.core.model,Flight.FlightBuilder,25,51,1,1,0,1,3,7,2,7
+SkyHigh Core,com.skyhigh.core.model,Flight,272,36,54,0,5,5,42,5,15,5
+SkyHigh Core,com.skyhigh.core.config,JacksonConfig,0,19,0,0,0,6,0,2,0,2
+SkyHigh Core,com.skyhigh.core.config,RateLimitingConfig.new HandlerInterceptor() {...},42,0,2,0,9,0,3,0,2,0
+SkyHigh Core,com.skyhigh.core.config,RateLimitingConfig,51,4,4,0,8,1,5,1,3,1
+SkyHigh Core,com.skyhigh.core.config,DistributedConfig,28,17,0,0,9,3,2,3,2,3
+SkyHigh Core,com.skyhigh.core.config,AppConfig,0,3,0,0,0,1,0,1,0,1
+SkyHigh Core,com.skyhigh.core.config,DataInitializer,4,168,1,1,2,32,1,4,0,4
+SkyHigh Core,com.skyhigh.core.service,SeatService,11,228,0,12,0,49,2,12,2,6
+SkyHigh Core,com.skyhigh.core.service,SeatService.new TransactionSynchronization() {...},0,22,0,0,0,4,0,2,0,2
+SkyHigh Core,com.skyhigh.core.service,BaggageService,3,42,0,4,2,10,0,6,0,4
+SkyHigh Core,com.skyhigh.core.service,WaitlistService,0,109,0,6,0,22,0,9,0,6

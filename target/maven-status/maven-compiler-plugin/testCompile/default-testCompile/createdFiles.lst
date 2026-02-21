@@ -1,0 +1,4 @@
+com/skyhigh/core/service/SeatServiceTest.class
+com/skyhigh/core/service/BaggageServiceTest.class
+com/skyhigh/core/service/WaitlistServiceTest.class
+com/skyhigh/core/service/BookingFlowIntegrationTest.class

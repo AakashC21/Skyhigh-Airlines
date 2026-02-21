@@ -1,0 +1,545 @@
+openapi: 3.0.3
+
+info:
+  title: SkyHigh Core API
+  description: |
+    Backend API for the SkyHigh Airlines Digital Check-In System.
+
+    ## Key Concepts
+    - **Seat Hold**: A 120-second time-bound reservation of a seat. Only one hold
+      per seat is permitted at a time (enforced by Redis).
+    - **Booking Confirmation**: Converts a hold into a permanent booking (PNR).
+      Requires the hold to be valid and baggage fees to be settled.
+    - **Waitlist**: FIFO queue for passengers waiting for a seat on a full flight.
+    - **PNR**: Passenger Name Record — the unique booking reference (e.g. `PNR-7EBCAA`).
+  version: 1.0.0
+  contact:
+    name: SkyHigh Engineering
+    email: engineering@skyhigh.com
+
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local development
+  - url: https://api.skyhigh.com/v1
+    description: Production
+
+tags:
+  - name: Flights
+    description: Flight and seat map queries
+  - name: Seats
+    description: Seat hold operations
+  - name: Bookings
+    description: Booking confirmation and lookup
+  - name: Waitlist
+    description: Waitlist management
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PATHS
+# ─────────────────────────────────────────────────────────────────────────────
+paths:
+
+  /flights:
+    get:
+      tags: [Flights]
+      summary: List all flights
+      operationId: getAllFlights
+      responses:
+        '200':
+          description: List of flights
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Flight'
+              example:
+                - id: 1
+                  flightNumber: "SH-101"
+                  departureTime: "2026-02-21T08:00:00"
+                  arrivalTime: "2026-02-21T11:00:00"
+                  aircraftType: "Boeing 737"
+                  createdAt: "2026-02-20T08:48:59"
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /flights/{flightId}/seats:
+    get:
+      tags: [Flights]
+      summary: Get real-time seat map for a flight
+      operationId: getSeatMap
+      parameters:
+        - $ref: '#/components/parameters/FlightId'
+      responses:
+        '200':
+          description: List of seats with current status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Seat'
+              example:
+                - id: 1
+                  seatNumber: "1A"
+                  seatClass: "BUSINESS"
+                  status: "AVAILABLE"
+                  updatedAt: "2026-02-20T08:48:59"
+                - id: 2
+                  seatNumber: "1B"
+                  seatClass: "BUSINESS"
+                  status: "HELD"
+                  updatedAt: "2026-02-20T09:01:00"
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /seats/hold:
+    post:
+      tags: [Seats]
+      summary: Hold a seat for 120 seconds
+      description: |
+        Attempts to acquire an exclusive 120-second hold on the specified seat.
+        Uses Redis SETNX — only one user can hold a seat at a time.
+        The hold must be confirmed via `POST /bookings/confirm` before expiry.
+      operationId: holdSeat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HoldRequest'
+            example:
+              flightId: 1
+              seatNumber: "1A"
+              userId: "user_001"
+      responses:
+        '200':
+          description: Seat successfully held
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HoldResponse'
+              example:
+                status: "HELD"
+                holdReference: "18f070ac-40e4-4afa-8384-30bae9733e87"
+                message: "Seat held for 120 seconds. Confirm quickly!"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Seat is currently held by another user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Seat 1A is currently held by another user."
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /bookings/confirm:
+    post:
+      tags: [Bookings]
+      summary: Confirm a seat booking
+      description: |
+        Confirms a previously held seat, creating a permanent booking (PNR).
+
+        **Prerequisites:**
+        - A valid hold must exist for the given `flightId` + `seatNumber` + `userId`
+        - If `baggageWeight > 25kg`, `paymentProcessed` must be `true`
+
+        **Concurrency:** Uses `SELECT FOR UPDATE` on the seat row to guarantee
+        no double-bookings even under concurrent requests.
+      operationId: confirmBooking
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmRequest'
+            examples:
+              standard:
+                summary: Standard booking (baggage within limit)
+                value:
+                  flightId: 1
+                  seatNumber: "1A"
+                  userId: "user_001"
+                  email: "alice@example.com"
+                  baggageWeight: 20.0
+                  paymentProcessed: false
+              excessBaggage:
+                summary: Excess baggage with payment
+                value:
+                  flightId: 1
+                  seatNumber: "1A"
+                  userId: "user_001"
+                  email: "alice@example.com"
+                  baggageWeight: 40.0
+                  paymentProcessed: true
+      responses:
+        '201':
+          description: Booking confirmed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfirmResponse'
+              example:
+                status: "CONFIRMED"
+                bookingReference: "PNR-7EBCAA"
+                seatNumber: "1A"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '402':
+          description: Excess baggage fee required before check-in
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaggageFeeResponse'
+              example:
+                error: "Excess baggage fee required before check-in"
+                feeAmount: 225.00
+                currency: "USD"
+                hint: "Retry with paymentProcessed=true after paying"
+        '409':
+          description: Hold expired, invalid, or seat already confirmed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Seat hold has expired or belongs to another user."
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /bookings/{reference}:
+    get:
+      tags: [Bookings]
+      summary: Look up a booking by PNR reference
+      operationId: getBooking
+      parameters:
+        - name: reference
+          in: path
+          required: true
+          description: Booking PNR reference (e.g. PNR-7EBCAA)
+          schema:
+            type: string
+            example: "PNR-7EBCAA"
+      responses:
+        '200':
+          description: Booking found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookingLookupResponse'
+              example:
+                bookingReference: "PNR-7EBCAA"
+                status: "CONFIRMED"
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /waitlist/join:
+    post:
+      tags: [Waitlist]
+      summary: Join the waitlist for a flight
+      description: |
+        Adds the user to the FIFO waitlist for the specified flight.
+        Position is determined by join timestamp.
+        When a seat becomes available, the first user in the queue is notified.
+      operationId: joinWaitlist
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JoinWaitlistRequest'
+            example:
+              flightId: 1
+              userId: "user_050"
+      responses:
+        '202':
+          description: Successfully joined the waitlist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WaitlistResponse'
+              example:
+                status: "WAITLISTED"
+                position: 1
+                message: "You will be notified when a seat becomes available"
+        '400':
+          description: User is already on the waitlist for this flight
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Already on waitlist at position 1"
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMPONENTS
+# ─────────────────────────────────────────────────────────────────────────────
+components:
+
+  parameters:
+    FlightId:
+      name: flightId
+      in: path
+      required: true
+      description: Unique flight ID
+      schema:
+        type: integer
+        format: int64
+        example: 1
+
+  # ── Schemas ────────────────────────────────────────────────────────────────
+
+  schemas:
+
+    Flight:
+      type: object
+      description: A scheduled flight
+      properties:
+        id:
+          type: integer
+          format: int64
+          readOnly: true
+        flightNumber:
+          type: string
+          example: "SH-101"
+        departureTime:
+          type: string
+          format: date-time
+        arrivalTime:
+          type: string
+          format: date-time
+        aircraftType:
+          type: string
+          example: "Boeing 737"
+        createdAt:
+          type: string
+          format: date-time
+          readOnly: true
+
+    Seat:
+      type: object
+      description: A seat on a specific flight
+      properties:
+        id:
+          type: integer
+          format: int64
+          readOnly: true
+        seatNumber:
+          type: string
+          example: "1A"
+        seatClass:
+          type: string
+          enum: [ECONOMY, BUSINESS, FIRST]
+        status:
+          type: string
+          enum: [AVAILABLE, HELD, CONFIRMED]
+          description: |
+            Current state of the seat:
+            - `AVAILABLE`: Can be held
+            - `HELD`: Temporarily reserved (expires in 120s)
+            - `CONFIRMED`: Permanently booked
+        updatedAt:
+          type: string
+          format: date-time
+          readOnly: true
+
+    HoldRequest:
+      type: object
+      required: [flightId, seatNumber, userId]
+      properties:
+        flightId:
+          type: integer
+          format: int64
+          description: ID of the flight
+        seatNumber:
+          type: string
+          description: Seat identifier (e.g. "1A", "10B")
+          example: "1A"
+        userId:
+          type: string
+          description: Unique identifier of the requesting passenger
+
+    HoldResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [HELD]
+        holdReference:
+          type: string
+          description: Temporary UUID reference for this hold session
+          example: "18f070ac-40e4-4afa-8384-30bae9733e87"
+        message:
+          type: string
+          example: "Seat held for 120 seconds. Confirm quickly!"
+
+    ConfirmRequest:
+      type: object
+      required: [flightId, seatNumber, userId, email]
+      properties:
+        flightId:
+          type: integer
+          format: int64
+        seatNumber:
+          type: string
+          example: "1A"
+        userId:
+          type: string
+          description: Must match the userId used during hold
+        email:
+          type: string
+          format: email
+          description: Passenger email — used to find or create passenger record
+        baggageWeight:
+          type: number
+          format: double
+          description: Total check-in baggage weight in kg
+          default: 0.0
+          example: 20.0
+        paymentProcessed:
+          type: boolean
+          description: Must be true if excess baggage fee > $0
+          default: false
+
+    ConfirmResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [CONFIRMED]
+        bookingReference:
+          type: string
+          description: Unique PNR reference
+          example: "PNR-7EBCAA"
+        seatNumber:
+          type: string
+          example: "1A"
+
+    BookingLookupResponse:
+      type: object
+      properties:
+        bookingReference:
+          type: string
+          example: "PNR-7EBCAA"
+        status:
+          type: string
+          enum: [CONFIRMED, CANCELLED]
+
+    JoinWaitlistRequest:
+      type: object
+      required: [flightId, userId]
+      properties:
+        flightId:
+          type: integer
+          format: int64
+        userId:
+          type: string
+
+    WaitlistResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [WAITLISTED]
+        position:
+          type: integer
+          description: 1-based position in the waitlist queue
+          example: 1
+        message:
+          type: string
+          example: "You will be notified when a seat becomes available"
+
+    BaggageFeeResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "Excess baggage fee required before check-in"
+        feeAmount:
+          type: number
+          format: double
+          example: 225.00
+        currency:
+          type: string
+          example: "USD"
+        hint:
+          type: string
+          example: "Retry with paymentProcessed=true after paying"
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Human-readable error message
+          example: "Seat 1A is currently held by another user."
+
+    ValidationErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "Bad Request"
+        details:
+          type: array
+          items:
+            type: string
+          example: ["flightId must not be null", "seatNumber must not be blank"]
+
+  # ── Responses ──────────────────────────────────────────────────────────────
+
+  responses:
+
+    BadRequest:
+      description: Malformed or invalid request body
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationErrorResponse'
+
+    NotFound:
+      description: The requested resource was not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "Booking not found"
+
+    TooManyRequests:
+      description: Rate limit exceeded
+      headers:
+        Retry-After:
+          description: Number of seconds to wait before retrying
+          schema:
+            type: integer
+            example: 1
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "Too many requests. Please slow down."
+
+    InternalServerError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "An unexpected error occurred. Please try again."

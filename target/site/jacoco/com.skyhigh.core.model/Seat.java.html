@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Seat.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">SkyHigh Core</a> &gt; <a href="index.source.html" class="el_package">com.skyhigh.core.model</a> &gt; <span class="el_source">Seat.java</span></div><h1>Seat.java</h1><pre class="source lang-java linenums">package com.skyhigh.core.model;
+
+import jakarta.persistence.*;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = &quot;seats&quot;, uniqueConstraints = {
+    @UniqueConstraint(columnNames = {&quot;flight_id&quot;, &quot;seatNumber&quot;})
+}, indexes = {
+    @Index(name = &quot;idx_seats_flight_status&quot;, columnList = &quot;flight_id, status&quot;)
+})
+<span class="pc bnc" id="L16" title="All 62 branches missed.">@Data</span>
+<span class="fc" id="L17">@NoArgsConstructor</span>
+<span class="fc" id="L18">@AllArgsConstructor</span>
+<span class="pc bpc" id="L19" title="2 of 4 branches missed.">@Builder</span>
+public class Seat {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+<span class="nc" id="L23">    private Long id;</span>
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = &quot;flight_id&quot;, nullable = false)
+<span class="fc" id="L27">    private Flight flight;</span>
+
+    @Column(nullable = false, length = 5)
+<span class="nc" id="L30">    private String seatNumber; // e.g., &quot;1A&quot;</span>
+
+    @Column(nullable = false)
+    @Enumerated(EnumType.STRING)
+<span class="nc" id="L34">    private SeatClass seatClass; // ECONOMY, BUSINESS, FIRST</span>
+
+    @Column(nullable = false)
+    @Enumerated(EnumType.STRING)
+    @Builder.Default
+<span class="fc" id="L39">    private SeatStatus status = SeatStatus.AVAILABLE;</span>
+
+    @Version
+<span class="fc" id="L42">    private Long version; // Optimistic locking support</span>
+
+    @Column(nullable = false)
+    @Builder.Default
+<span class="pc" id="L46">    private LocalDateTime updatedAt = LocalDateTime.now();</span>
+
+    @PreUpdate
+    public void preUpdate() {
+<span class="fc" id="L50">        this.updatedAt = LocalDateTime.now();</span>
+<span class="fc" id="L51">    }</span>
+    
+<span class="fc" id="L53">    public enum SeatClass {</span>
+<span class="fc" id="L54">        ECONOMY, BUSINESS, FIRST</span>
+    }
+    
+<span class="fc" id="L57">    public enum SeatStatus {</span>
+<span class="fc" id="L58">        AVAILABLE, HELD, CONFIRMED</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

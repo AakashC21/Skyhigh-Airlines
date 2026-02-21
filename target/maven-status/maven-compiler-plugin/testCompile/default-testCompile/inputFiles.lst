@@ -1,0 +1,4 @@
+/app/src/test/java/com/skyhigh/core/service/BookingFlowIntegrationTest.java
+/app/src/test/java/com/skyhigh/core/service/BaggageServiceTest.java
+/app/src/test/java/com/skyhigh/core/service/WaitlistServiceTest.java
+/app/src/test/java/com/skyhigh/core/service/SeatServiceTest.java

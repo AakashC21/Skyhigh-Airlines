@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>GlobalExceptionHandler.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">SkyHigh Core</a> &gt; <a href="index.source.html" class="el_package">com.skyhigh.core.exception</a> &gt; <span class="el_source">GlobalExceptionHandler.java</span></div><h1>GlobalExceptionHandler.java</h1><pre class="source lang-java linenums">package com.skyhigh.core.exception;
+
+import lombok.Builder;
+import lombok.Data;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ControllerAdvice;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
+
+@ControllerAdvice
+<span class="nc" id="L17">public class GlobalExceptionHandler {</span>
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity&lt;ErrorResponse&gt; handleValidationExceptions(MethodArgumentNotValidException ex) {
+<span class="nc" id="L21">        Map&lt;String, String&gt; errors = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L22">        ex.getBindingResult().getAllErrors().forEach((error) -&gt; {</span>
+<span class="nc" id="L23">            String fieldName = ((FieldError) error).getField();</span>
+<span class="nc" id="L24">            String errorMessage = error.getDefaultMessage();</span>
+<span class="nc" id="L25">            errors.put(fieldName, errorMessage);</span>
+<span class="nc" id="L26">        });</span>
+
+<span class="nc" id="L28">        ErrorResponse response = ErrorResponse.builder()</span>
+<span class="nc" id="L29">                .timestamp(LocalDateTime.now())</span>
+<span class="nc" id="L30">                .status(HttpStatus.BAD_REQUEST.value())</span>
+<span class="nc" id="L31">                .error(&quot;Validation Failed&quot;)</span>
+<span class="nc" id="L32">                .message(&quot;Input parameters are invalid&quot;)</span>
+<span class="nc" id="L33">                .details(errors)</span>
+<span class="nc" id="L34">                .build();</span>
+
+<span class="nc" id="L36">        return new ResponseEntity&lt;&gt;(response, HttpStatus.BAD_REQUEST);</span>
+    }
+
+    @ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity&lt;ErrorResponse&gt; handleIllegalStateException(IllegalStateException ex) {
+<span class="nc" id="L41">        HttpStatus status = HttpStatus.CONFLICT;</span>
+<span class="nc bnc" id="L42" title="All 4 branches missed.">        if (ex.getMessage().contains(&quot;expired&quot;) || ex.getMessage().contains(&quot;belongs to another user&quot;)) {</span>
+<span class="nc" id="L43">            status = HttpStatus.GONE;</span>
+        }
+
+<span class="nc" id="L46">        ErrorResponse response = ErrorResponse.builder()</span>
+<span class="nc" id="L47">                .timestamp(LocalDateTime.now())</span>
+<span class="nc" id="L48">                .status(status.value())</span>
+<span class="nc" id="L49">                .error(status.getReasonPhrase())</span>
+<span class="nc" id="L50">                .message(ex.getMessage())</span>
+<span class="nc" id="L51">                .build();</span>
+
+<span class="nc" id="L53">        return new ResponseEntity&lt;&gt;(response, status);</span>
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity&lt;ErrorResponse&gt; handleIllegalArgumentException(IllegalArgumentException ex) {
+<span class="nc" id="L58">        ErrorResponse response = ErrorResponse.builder()</span>
+<span class="nc" id="L59">                .timestamp(LocalDateTime.now())</span>
+<span class="nc" id="L60">                .status(HttpStatus.NOT_FOUND.value())</span>
+<span class="nc" id="L61">                .error(&quot;Not Found&quot;)</span>
+<span class="nc" id="L62">                .message(ex.getMessage())</span>
+<span class="nc" id="L63">                .build();</span>
+
+<span class="nc" id="L65">        return new ResponseEntity&lt;&gt;(response, HttpStatus.NOT_FOUND);</span>
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity&lt;ErrorResponse&gt; handleGeneralException(Exception ex) {
+<span class="nc" id="L70">        ErrorResponse response = ErrorResponse.builder()</span>
+<span class="nc" id="L71">                .timestamp(LocalDateTime.now())</span>
+<span class="nc" id="L72">                .status(HttpStatus.INTERNAL_SERVER_ERROR.value())</span>
+<span class="nc" id="L73">                .error(&quot;Internal Server Error&quot;)</span>
+<span class="nc" id="L74">                .message(&quot;An unexpected error occurred&quot;)</span>
+<span class="nc" id="L75">                .build();</span>
+
+<span class="nc" id="L77">        return new ResponseEntity&lt;&gt;(response, HttpStatus.INTERNAL_SERVER_ERROR);</span>
+    }
+
+<span class="nc bnc" id="L80" title="All 40 branches missed.">    @Data</span>
+<span class="nc" id="L81">    @Builder</span>
+    public static class ErrorResponse {
+<span class="nc" id="L83">        private LocalDateTime timestamp;</span>
+<span class="nc" id="L84">        private int status;</span>
+<span class="nc" id="L85">        private String error;</span>
+<span class="nc" id="L86">        private String message;</span>
+<span class="nc" id="L87">        private Map&lt;String, String&gt; details;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

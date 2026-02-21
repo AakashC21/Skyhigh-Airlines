@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DataInitializer.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">SkyHigh Core</a> &gt; <a href="index.source.html" class="el_package">com.skyhigh.core.config</a> &gt; <span class="el_source">DataInitializer.java</span></div><h1>DataInitializer.java</h1><pre class="source lang-java linenums">package com.skyhigh.core.config;
+
+import com.skyhigh.core.model.Flight;
+import com.skyhigh.core.model.Seat;
+import com.skyhigh.core.repository.FlightRepository;
+import com.skyhigh.core.repository.SeatRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.stereotype.Component;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+/**
+ * Seeds the database with sample flight and seat data on startup.
+ * Only runs if no flights are found (idempotent).
+ */
+@Component
+<span class="fc" id="L20">@RequiredArgsConstructor</span>
+<span class="fc" id="L21">@Slf4j</span>
+public class DataInitializer implements CommandLineRunner {
+
+    private final FlightRepository flightRepository;
+    private final SeatRepository seatRepository;
+
+    @Override
+    public void run(String... args) {
+<span class="pc bpc" id="L29" title="1 of 2 branches missed.">        if (flightRepository.count() &gt; 0) {</span>
+<span class="nc" id="L30">            log.info(&quot;Data already initialized, skipping seed.&quot;);</span>
+<span class="nc" id="L31">            return;</span>
+        }
+
+<span class="fc" id="L34">        log.info(&quot;Seeding demo data...&quot;);</span>
+
+<span class="fc" id="L36">        Flight flight = flightRepository.save(Flight.builder()</span>
+<span class="fc" id="L37">                .flightNumber(&quot;SH-101&quot;)</span>
+<span class="fc" id="L38">                .departureTime(LocalDateTime.now().plusDays(1))</span>
+<span class="fc" id="L39">                .arrivalTime(LocalDateTime.now().plusDays(1).plusHours(3))</span>
+<span class="fc" id="L40">                .aircraftType(&quot;Boeing 737&quot;)</span>
+<span class="fc" id="L41">                .build());</span>
+
+        // Create seats: 4 Business + 8 Economy
+<span class="fc" id="L44">        List&lt;Seat&gt; seats = List.of(</span>
+<span class="fc" id="L45">                seat(flight, &quot;1A&quot;, Seat.SeatClass.BUSINESS),</span>
+<span class="fc" id="L46">                seat(flight, &quot;1B&quot;, Seat.SeatClass.BUSINESS),</span>
+<span class="fc" id="L47">                seat(flight, &quot;1C&quot;, Seat.SeatClass.BUSINESS),</span>
+<span class="fc" id="L48">                seat(flight, &quot;1D&quot;, Seat.SeatClass.BUSINESS),</span>
+<span class="fc" id="L49">                seat(flight, &quot;10A&quot;, Seat.SeatClass.ECONOMY),</span>
+<span class="fc" id="L50">                seat(flight, &quot;10B&quot;, Seat.SeatClass.ECONOMY),</span>
+<span class="fc" id="L51">                seat(flight, &quot;10C&quot;, Seat.SeatClass.ECONOMY),</span>
+<span class="fc" id="L52">                seat(flight, &quot;10D&quot;, Seat.SeatClass.ECONOMY),</span>
+<span class="fc" id="L53">                seat(flight, &quot;20A&quot;, Seat.SeatClass.ECONOMY),</span>
+<span class="fc" id="L54">                seat(flight, &quot;20B&quot;, Seat.SeatClass.ECONOMY),</span>
+<span class="fc" id="L55">                seat(flight, &quot;20C&quot;, Seat.SeatClass.ECONOMY),</span>
+<span class="fc" id="L56">                seat(flight, &quot;20D&quot;, Seat.SeatClass.ECONOMY));</span>
+<span class="fc" id="L57">        seatRepository.saveAll(seats);</span>
+
+<span class="fc" id="L59">        log.info(&quot;Demo flight SH-101 created with ID={} and {} seats&quot;, flight.getId(), seats.size());</span>
+<span class="fc" id="L60">    }</span>
+
+    private Seat seat(Flight flight, String number, Seat.SeatClass seatClass) {
+<span class="fc" id="L63">        return Seat.builder()</span>
+<span class="fc" id="L64">                .flight(flight)</span>
+<span class="fc" id="L65">                .seatNumber(number)</span>
+<span class="fc" id="L66">                .seatClass(seatClass)</span>
+<span class="fc" id="L67">                .status(Seat.SeatStatus.AVAILABLE)</span>
+<span class="fc" id="L68">                .build();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>
